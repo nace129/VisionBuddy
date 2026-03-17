@@ -35,36 +35,61 @@ class _HomeScreenState extends State<HomeScreen> {
     _initAll();
   }
 
-  Future<void> _initAll() async {
-    await _initCamera();
-    await _initSTT();
-    _startAutoScan();
-    await Future.delayed(Duration(seconds: 1));
-    await _speak("VisionBuddy ready.");
-  }
+//   Future<void> _initAll() async {
+//     await _initCamera();
+//     await _initSTT();
+//     _startAutoScan();
+//     await Future.delayed(Duration(seconds: 1));
+//     await _speak("VisionBuddy ready.");
+//   }
+Future<void> _initAll() async {
+  await _initTTS();
+  await _initCamera();
+  await _initSTT();
+  _startAutoScan();
+  await Future.delayed(Duration(seconds: 1));
+  await _speak("VisionBuddy ready.");
+}
 
   // ── TTS ──────────────────────────────────────────────────
-  Future<void> _speak(String text) async {
-    if (text.trim().isEmpty) return;
-    print("SPEAKING: $text");
-    try {
-      await Process.run('killall', ['say']);
-      await Process.run('say', ['-r', '160', text]);
-      print("✅ Spoken");
-    } catch (e) {
-      print("TTS error: $e");
-      // fallback to flutter_tts
-      try {
-        await _tts.setLanguage("en-US");
-        await _tts.setVolume(1.0);
-        await _tts.setSpeechRate(0.5);
-        await _tts.speak(text);
-      } catch (e2) {
-        print("flutter_tts also failed: $e2");
-      }
-    }
+//   Future<void> _speak(String text) async {
+//     if (text.trim().isEmpty) return;
+//     print("SPEAKING: $text");
+//     try {
+//       await Process.run('killall', ['say']);
+//       await Process.run('say', ['-r', '160', text]);
+//       print("✅ Spoken");
+//     } catch (e) {
+//       print("TTS error: $e");
+//       // fallback to flutter_tts
+//       try {
+//         await _tts.setLanguage("en-US");
+//         await _tts.setVolume(1.0);
+//         await _tts.setSpeechRate(0.5);
+//         await _tts.speak(text);
+//       } catch (e2) {
+//         print("flutter_tts also failed: $e2");
+//       }
+//     }
+//   }
+Future<void> _speak(String text) async {
+  if (text.trim().isEmpty) return;
+  print("SPEAKING: $text");
+  try {
+    await _tts.stop();
+    await Future.delayed(Duration(milliseconds: 200));
+    await _tts.speak(text);
+  } catch (e) {
+    print("TTS error: $e");
   }
-
+}
+Future<void> _initTTS() async {
+  await _tts.setLanguage("en-US");
+  await _tts.setVolume(1.0);
+  await _tts.setSpeechRate(0.5);
+  await _tts.setPitch(1.0);
+  print("TTS initialized ✅");
+}
   // ── STT ──────────────────────────────────────────────────
   Future<void> _initSTT() async {
     _sttAvailable = await _stt.initialize(
@@ -118,33 +143,60 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _processQuestion() async {
-    if (!_isListening) return;
-    await _stt.stop();
-    setState(() => _isListening = false);
+//   Future<void> _processQuestion() async {
+//     if (!_isListening) return;
+//     await _stt.stop();
+//     setState(() => _isListening = false);
 
-    final question = _spokenWords.trim();
-    print("Question heard: $question");
+//     final question = _spokenWords.trim();
+//     print("Question heard: $question");
 
-    if (question.isEmpty) {
-      setState(() => _lastDescription = "Didn't hear anything. Try again.");
-      await _speak("I didn't hear anything. Please try again.");
-      if (_cameraOn) _startAutoScan();
-      return;
-    }
+//     if (question.isEmpty) {
+//       setState(() => _lastDescription = "Didn't hear anything. Try again.");
+//       await _speak("I didn't hear anything. Please try again.");
+//       if (_cameraOn) _startAutoScan();
+//       return;
+//     }
 
-    setState(() => _lastDescription = "You asked: $question");
-    await Process.run('say', ['-r', '160', 'Got it.']);
-    await Future.delayed(Duration(milliseconds: 800));
+//     setState(() => _lastDescription = "You asked: $question");
+//     await Process.run('say', ['-r', '160', 'Got it.']);
+//     await Future.delayed(Duration(milliseconds: 800));
 
-    if (_cameraOn && _cameraController?.value.isInitialized == true) {
-      await _captureAndAnalyze(force: true, question: question);
-    } else {
-      await _answerWithoutCamera(question);
-    }
+//     if (_cameraOn && _cameraController?.value.isInitialized == true) {
+//       await _captureAndAnalyze(force: true, question: question);
+//     } else {
+//       await _answerWithoutCamera(question);
+//     }
 
+//     if (_cameraOn) _startAutoScan();
+//   }
+Future<void> _processQuestion() async {
+  if (!_isListening) return;
+  await _stt.stop();
+  setState(() => _isListening = false);
+
+  final question = _spokenWords.trim();
+  print("Question heard: $question");
+
+  if (question.isEmpty) {
+    setState(() => _lastDescription = "Didn't hear anything. Try again.");
+    await _speak("I didn't hear anything.");
     if (_cameraOn) _startAutoScan();
+    return;
   }
+
+  setState(() => _lastDescription = "You asked: $question");
+  await _speak("Got it.");
+  await Future.delayed(Duration(milliseconds: 1000));
+
+  if (_cameraOn && _cameraController?.value.isInitialized == true) {
+    await _captureAndAnalyze(force: true, question: question);
+  } else {
+    await _answerWithoutCamera(question);
+  }
+
+  if (_cameraOn) _startAutoScan();
+}
 
   Future<void> _answerWithoutCamera(String question) async {
     try {
@@ -168,117 +220,265 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ── Camera ────────────────────────────────────────────────
-  Future<void> _initCamera() async {
-    try {
-      final cameras = await availableCameras();
-      if (cameras.isEmpty) return;
-      _cameraController = CameraController(
-        cameras.first,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-      await _cameraController!.initialize();
-      if (mounted) setState(() {});
-    } catch (e) {
-      print("Camera error: $e");
-    }
-  }
-
-  Future<void> _toggleCamera() async {
-    if (_cameraOn) {
-      _stopAutoScan();
-      setState(() { _cameraOn = false; _currentMode = ""; });
-      await _speak("Camera off.");
-    } else {
-      setState(() => _cameraOn = true);
-      if (_cameraController?.value.isInitialized != true) {
-        await _initCamera();
-      }
-      _startAutoScan();
-      await _speak("Camera on.");
-    }
-  }
-
-  void _startAutoScan() {
-    _autoTimer?.cancel();
-    _autoTimer = Timer.periodic(Duration(seconds: 4), (_) {
-      if (_cameraOn && !_isAnalyzing && !_isListening &&
-          _cameraController?.value.isInitialized == true) {
-        _captureAndAnalyze(force: false);
-      }
+    Future<void> _toggleCamera() async {
+  if (_cameraOn) {
+    // ── Turn OFF ──────────────────────────────────────
+    _stopAutoScan();
+    await _cameraController?.dispose();
+    _cameraController = null;
+    setState(() {
+      _cameraOn = false;
+      _currentMode = "";
     });
+    await _speak("Camera off.");
+  } else {
+    // ── Turn ON ───────────────────────────────────────
+    setState(() => _cameraOn = true);
+    await _initCamera();  // fresh init
+    _startAutoScan();
+    await _speak("Camera on.");
   }
+}
+
+Future<void> _initCamera() async {
+  try {
+    await _cameraController?.dispose();
+    _cameraController = null;
+    if (mounted) setState(() {});
+
+    final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      print("❌ No cameras found");
+      return;
+    }
+
+    _cameraController = CameraController(
+      cameras.first,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+
+    await _cameraController!.initialize();
+    
+    // ✅ Critical for Chrome — wait for preview to render
+    await Future.delayed(Duration(milliseconds: 500));
+    
+    if (mounted) setState(() {});
+    print("✅ Camera initialized: ${_cameraController!.value.isInitialized}");
+    
+  } catch (e) {
+    print("❌ Camera error: $e");
+  }
+}
+//   Future<void> _initCamera() async {
+//     try {
+//       final cameras = await availableCameras();
+//       if (cameras.isEmpty) return;
+//       _cameraController = CameraController(
+//         cameras.first,
+//         ResolutionPreset.medium,
+//         enableAudio: false,
+//       );
+//       await _cameraController!.initialize();
+//       if (mounted) setState(() {});
+//     } catch (e) {
+//       print("Camera error: $e");
+//     }
+//   }
+
+//   Future<void> _toggleCamera() async {
+//     if (_cameraOn) {
+//       _stopAutoScan();
+//       setState(() { _cameraOn = false; _currentMode = ""; });
+//       await _speak("Camera off.");
+//     } else {
+//       setState(() => _cameraOn = true);
+//       if (_cameraController?.value.isInitialized != true) {
+//         await _initCamera();
+//       }
+//       _startAutoScan();
+//       await _speak("Camera on.");
+//     }
+//   }
+
+//   void _startAutoScan() {
+//     _autoTimer?.cancel();
+//     _autoTimer = Timer.periodic(Duration(seconds: 4), (_) {
+//       if (_cameraOn && !_isAnalyzing && !_isListening &&
+//           _cameraController?.value.isInitialized == true) {
+//         _captureAndAnalyze(force: false);
+//       }
+//     });
+//   }
+void _startAutoScan() {
+  _autoTimer?.cancel();
+  print("🔄 Auto scan started — every 3 seconds");
+  _autoTimer = Timer.periodic(Duration(seconds: 3), (_) async {
+    if (!_cameraOn) return;
+    if (_isAnalyzing) return;
+    if (_isListening) return;
+    if (_cameraController?.value.isInitialized != true) return;
+    print("⏱️ Auto scan firing...");
+    await _captureAndAnalyze(force: false);
+  });
+}
 
   void _stopAutoScan() => _autoTimer?.cancel();
 
   // ── Core Agent Call ───────────────────────────────────────
-  Future<void> _captureAndAnalyze({
-    bool force = false,
-    String? question,
-  }) async {
-    if (_isAnalyzing || _cameraController == null || !_cameraOn) return;
-    setState(() => _isAnalyzing = true);
-    print("📸 Capturing...");
-
-    try {
-      final image = await _cameraController!.takePicture();
-      final bytes = await image.readAsBytes();
-      final base64Image = base64Encode(bytes);
-      print("📸 Size: ${bytes.length} bytes");
-
-      final body = {
-        'image': base64Image,
-        'force': force,
-        if (question != null) 'question': question,
-      };
-
-      print("📡 Sending...");
-      final response = await http.post(
-        Uri.parse('$BASE_URL/analyze'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      ).timeout(Duration(seconds: 30));
-
-      print("📡 Status: ${response.statusCode}");
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final description = data['description'] ?? '';
-        final shouldSpeak = data['should_speak'] ?? false;
-        final modeUsed = data['mode_used'] ?? '';
-
-        print("🗣️ shouldSpeak: $shouldSpeak | desc: $description");
-
-        if ((shouldSpeak || force) && description.isNotEmpty) {
-          setState(() {
-            _lastDescription = description;
-            _currentMode = modeUsed;
-          });
-          await Future.delayed(Duration(milliseconds: 200));
-          await _speak(description);
-        }
-      } else {
-        print("❌ Backend error: ${response.statusCode}");
-        if (force) {
-          setState(() => _lastDescription = "Backend error. Try again.");
-        }
-      }
-
-    } on TimeoutException {
-      print("❌ TIMEOUT");
-      if (force) {
-        setState(() => _lastDescription = "Timeout. Is backend running?");
-        await _speak("Taking too long. Please try again.");
-      }
-    } catch (e) {
-      print("❌ Error: $e");
-      if (force) {
-        setState(() => _lastDescription = "Error: $e");
-      }
-    } finally {
-      setState(() => _isAnalyzing = false);
-    }
+    Future<void> _captureAndAnalyze({
+  bool force = false,
+  String? question,
+}) async {
+  // ── Guard checks ──────────────────────────────────
+  if (_isAnalyzing) return;
+  if (!_cameraOn) return;
+  if (_cameraController == null) return;
+  if (!_cameraController!.value.isInitialized) {
+    print("⚠️ Camera not initialized");
+    return;
   }
+
+  setState(() => _isAnalyzing = true);
+
+  try {
+    final image = await _cameraController!.takePicture();
+    final bytes = await image.readAsBytes();
+    final base64Image = base64Encode(bytes);
+
+    final body = {
+      'image': base64Image,
+      'force': force,
+      if (question != null) 'question': question,
+    };
+
+    final response = await http.post(
+      Uri.parse('$BASE_URL/analyze'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ).timeout(Duration(seconds: 60));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final description = data['description'] ?? '';
+      final shouldSpeak = data['should_speak'] ?? false;
+      final modeUsed = data['mode_used'] ?? '';
+      final sceneChanged = data['scene_changed'] ?? false;
+
+      print("🗣️ shouldSpeak:$shouldSpeak scene_changed:$sceneChanged desc:$description");
+
+    //   if ((shouldSpeak || force) && description.isNotEmpty) {
+    //     // ✅ FEATURE 6: kill current voice immediately
+    //     await Process.run('killall', ['say']);
+    //     await Future.delayed(Duration(milliseconds: 100));
+
+    //     setState(() {
+    //       _lastDescription = description;
+    //       _currentMode = modeUsed;
+    //     });
+    //     await _speak(description);
+    //   }
+    if ((shouldSpeak || force) && description.isNotEmpty) {
+  // ✅ Stop current speech before new one
+  await _tts.stop();
+  await Future.delayed(Duration(milliseconds: 100));
+
+  setState(() {
+    _lastDescription = description;
+    _currentMode = modeUsed;
+  });
+  await _speak(description);
+}
+    }
+  } on TimeoutException {
+    if (force) {
+      setState(() => _lastDescription = "Timeout. Try again.");
+    }
+  } catch (e) {
+    print("❌ Error: $e");
+    if (force) setState(() => _lastDescription = "Error: $e");
+  } finally {
+    setState(() => _isAnalyzing = false);
+  }
+}
+//   Future<void> _captureAndAnalyze({
+//     bool force = false,
+//     String? question,
+//   }) async {
+//     if (_isAnalyzing || _cameraController == null || !_cameraOn) return;
+//     setState(() => _isAnalyzing = true);
+//     print("📸 Capturing...");
+
+//     try {
+//       final image = await _cameraController!.takePicture();
+//       final bytes = await image.readAsBytes();
+//       final base64Image = base64Encode(bytes);
+//       print("📸 Size: ${bytes.length} bytes");
+
+//       final body = {
+//         'image': base64Image,
+//         'force': force,
+//         if (question != null) 'question': question,
+//       };
+
+//       print("📡 Sending...");
+//       final response = await http.post(
+//         Uri.parse('$BASE_URL/analyze'),
+//         headers: {'Content-Type': 'application/json'},
+//         body: jsonEncode(body),
+//       ).timeout(Duration(seconds: 30));
+
+//       print("📡 Status: ${response.statusCode}");
+
+//       if (response.statusCode == 200) {
+//         final data = jsonDecode(response.body);
+//         final description = data['description'] ?? '';
+//         final shouldSpeak = data['should_speak'] ?? false;
+//         final modeUsed = data['mode_used'] ?? '';
+
+//         print("🗣️ shouldSpeak: $shouldSpeak | desc: $description");
+
+//         // if ((shouldSpeak || force) && description.isNotEmpty) {
+//         //   setState(() {
+//         //     _lastDescription = description;
+//         //     _currentMode = modeUsed;
+//         //   });
+//         //   await Future.delayed(Duration(milliseconds: 200));
+//         //   await _speak(description);
+//         // }
+//         if ((shouldSpeak || force) && description.isNotEmpty) {
+//   // FEATURE 6: interrupt current speech immediately
+//   await Process.run('killall', ['say']);
+//   await Future.delayed(Duration(milliseconds: 100));
+  
+//   setState(() {
+//     _lastDescription = description;
+//     _currentMode = modeUsed;
+//   });
+//   await _speak(description);
+// }
+//        else {
+//         print("❌ Backend error: ${response.statusCode}");
+//         if (force) {
+//           setState(() => _lastDescription = "Backend error. Try again.");
+//         }
+//       }
+
+//     } on TimeoutException {
+//       print("❌ TIMEOUT");
+//       if (force) {
+//         setState(() => _lastDescription = "Timeout. Is backend running?");
+//         await _speak("Taking too long. Please try again.");
+//       }
+//     } catch (e) {
+//       print("❌ Error: $e");
+//       if (force) {
+//         setState(() => _lastDescription = "Error: $e");
+//       }
+//     } finally {
+//       setState(() => _isAnalyzing = false);
+//     }
+//   }
 
   // ── UI ────────────────────────────────────────────────────
   @override
@@ -333,7 +533,58 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: Stack(children: [
-                      CameraPreview(_cameraController!),
+                      _cameraOn && _cameraController != null && 
+_cameraController!.value.isInitialized
+  ? ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(children: [
+        // ✅ Use AspectRatio wrapper for Chrome
+        AspectRatio(
+          aspectRatio: _cameraController!.value.aspectRatio,
+          child: CameraPreview(
+            _cameraController!,
+            key: ValueKey(_cameraController.hashCode),
+          ),
+        ),
+        // Live badge
+        Positioned(top: 12, left: 12,
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(children: [
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  color: _isAnalyzing ? Colors.orange : Colors.green,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              SizedBox(width: 6),
+              Text(
+                _isAnalyzing ? "Analyzing..." : "Live",
+                style: TextStyle(color: Colors.white, fontSize: 12)),
+            ]),
+          ),
+        ),
+        // Mode badge
+        if (_currentMode.isNotEmpty)
+          Positioned(top: 12, right: 12,
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: _modeColor(_currentMode),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(_modeEmoji(_currentMode),
+                style: TextStyle(color: Colors.white,
+                  fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ),
+      ]),
+    ):
 
                       // Live / Analyzing badge
                       Positioned(top: 12, left: 12,
