@@ -12,7 +12,7 @@ client = OpenAI(
 )
 
 # ── Nemotron models ────────────────────────────────────────
-NEMOTRON_SUPER = "nvidia/llama-3.3-nemotron-super-49b-v1"
+NEMOTRON_SUPER = "nvidia/nemotron-nano-12b-v2-vl"
 NEMOTRON_NANO  = "nvidia/nemotron-nano-9b-v1"
 NIM_VISION     = "meta/llama-3.2-11b-vision-instruct"
 
@@ -67,7 +67,16 @@ def nemotron_reason(raw_vision: str,
     last_scene = memory.last_description
     
     system_prompt = """You are VisionBuddy, an AI agent for blind and visually impaired users.
-
+RULES:
+- MAX 1 sentence
+- Most critical info FIRST
+- No filler words like "I can see" or "In the image"
+- Just state the fact directly
+- Medicine: name + dose only
+- Navigation: hazard + distance only  
+- Text: read it exactly
+- Money: amount only
+- General: main object + position only 
 YOUR JOB:
 1. AUTO-DETECT what type of scene this is (medicine/navigation/text/money/general)
 2. DECIDE if this is worth speaking about (is it new/different/important?)
