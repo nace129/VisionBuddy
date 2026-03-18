@@ -5,7 +5,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
-import 'dart:io';
+import 'package:speech_to_text/speech_recognition_result.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -27,176 +27,146 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentMode = "";
 
   Timer? _autoTimer;
-  static const String BASE_URL = 'http://localhost:8000';
-
+//   static const String BASE_URL = 'http://localhost:8000';
+  
+static const String BASE_URL = 'http://10.251.114.135:8000';
   @override
   void initState() {
     super.initState();
     _initAll();
   }
 
-//   Future<void> _initAll() async {
-//     await _initCamera();
-//     await _initSTT();
-//     _startAutoScan();
-//     await Future.delayed(Duration(seconds: 1));
-//     await _speak("VisionBuddy ready.");
-//   }
-Future<void> _initAll() async {
-  await _initTTS();
-  await _initCamera();
-  await _initSTT();
-  _startAutoScan();
-  await Future.delayed(Duration(seconds: 1));
-  await _speak("VisionBuddy ready.");
-}
-
-  // ── TTS ──────────────────────────────────────────────────
-//   Future<void> _speak(String text) async {
-//     if (text.trim().isEmpty) return;
-//     print("SPEAKING: $text");
-//     try {
-//       await Process.run('killall', ['say']);
-//       await Process.run('say', ['-r', '160', text]);
-//       print("✅ Spoken");
-//     } catch (e) {
-//       print("TTS error: $e");
-//       // fallback to flutter_tts
-//       try {
-//         await _tts.setLanguage("en-US");
-//         await _tts.setVolume(1.0);
-//         await _tts.setSpeechRate(0.5);
-//         await _tts.speak(text);
-//       } catch (e2) {
-//         print("flutter_tts also failed: $e2");
-//       }
-//     }
-//   }
-Future<void> _speak(String text) async {
-  if (text.trim().isEmpty) return;
-  print("SPEAKING: $text");
-  try {
-    await _tts.stop();
-    await Future.delayed(Duration(milliseconds: 200));
-    await _tts.speak(text);
-  } catch (e) {
-    print("TTS error: $e");
+  // ── Init ──────────────────────────────────────────────
+  Future<void> _initAll() async {
+    await _initTTS();
+    await _initCamera();
+    await _initSTT();
+    _startAutoScan();
+    await Future.delayed(Duration(seconds: 1));
+    await _speak("VisionBuddy ready.");
   }
-}
-Future<void> _initTTS() async {
-  await _tts.setLanguage("en-US");
-  await _tts.setVolume(1.0);
-  await _tts.setSpeechRate(0.5);
-  await _tts.setPitch(1.0);
-  print("TTS initialized ✅");
-}
-  // ── STT ──────────────────────────────────────────────────
+
+  // ── TTS ───────────────────────────────────────────────
+  Future<void> _initTTS() async {
+    await _tts.setLanguage("en-US");
+    await _tts.setVolume(1.0);
+    await _tts.setSpeechRate(0.5);
+    await _tts.setPitch(1.0);
+    print("TTS initialized ✅");
+  }
+
+  Future<void> _speak(String text) async {
+    if (text.trim().isEmpty) return;
+    print("SPEAKING: $text");
+    try {
+      await _tts.stop();
+      await Future.delayed(Duration(milliseconds: 200));
+      await _tts.speak(text);
+    } catch (e) {
+      print("TTS error: $e");
+    }
+  }
+
+  // ── STT ───────────────────────────────────────────────
   Future<void> _initSTT() async {
-    _sttAvailable = await _stt.initialize(
-      onError: (e) {
-        print('STT Error: $e');
-        setState(() => _isListening = false);
-        if (_cameraOn) _startAutoScan();
-      },
-      onStatus: (status) {
-        print('STT Status: $status');
-        if ((status == 'done' || status == 'notListening') && _isListening) {
-          _processQuestion();
-        }
-      },
-    );
-    print('STT Available: $_sttAvailable');
-    setState(() {});
+    try {
+      _sttAvailable = await _stt.initialize(
+        onError: (error) {
+          print('STT Error: ${error.errorMsg}');
+          setState(() => _isListening = false);
+          if (_cameraOn) _startAutoScan();
+        },
+        onStatus: (status) {
+          print('STT Status: $status');
+          if ((status == 'done' || status == 'notListening') && _isListening) {
+            _processQuestion();
+          }
+        },
+      );
+      print('STT Available: $_sttAvailable');
+      setState(() {});
+    } catch (e) {
+      print("STT init error: $e");
+      _sttAvailable = false;
+    }
   }
 
   Future<void> _startListening() async {
     if (!_sttAvailable) {
-      await _speak("Microphone not available.");
+      setState(() => _lastDescription = "Mic not available. Check browser permissions.");
       return;
     }
     if (_isListening) return;
 
-    _autoTimer?.cancel();
-    await Process.run('killall', ['say']);
+    _stopAutoScan();
+    await _tts.stop();
 
     setState(() {
       _isListening = true;
       _spokenWords = "";
-      _lastDescription = "🎤 Listening... speak now";
+      _lastDescription = "🎤 Listening... speak your question";
     });
 
-    await _stt.listen(
-      onResult: (result) {
-        setState(() {
-          _spokenWords = result.recognizedWords;
-          _lastDescription = "🎤 ${result.recognizedWords}";
-        });
-        if (result.finalResult && result.recognizedWords.isNotEmpty) {
-          _processQuestion();
-        }
-      },
-      listenFor: Duration(seconds: 10),
-      pauseFor: Duration(seconds: 3),
-      partialResults: true,
-      localeId: "en_US",
-      cancelOnError: false,
-    );
+    print("🎤 Starting STT...");
+
+    try {
+      await _stt.listen(
+        onResult: (result) {
+          print("STT: ${result.recognizedWords} final:${result.finalResult}");
+          setState(() {
+            _spokenWords = result.recognizedWords;
+            if (_spokenWords.isNotEmpty) {
+              _lastDescription = "🎤 $_spokenWords";
+            }
+          });
+          if (result.finalResult && result.recognizedWords.isNotEmpty) {
+            _processQuestion();
+          }
+        },
+        listenFor: Duration(seconds: 10),
+        pauseFor: Duration(seconds: 2),
+        partialResults: true,
+        localeId: "en_US",
+        cancelOnError: false,
+        listenMode: ListenMode.confirmation,
+      );
+    } catch (e) {
+      print("STT listen error: $e");
+      setState(() {
+        _isListening = false;
+        _lastDescription = "Mic error. Try again.";
+      });
+      if (_cameraOn) _startAutoScan();
+    }
   }
 
-//   Future<void> _processQuestion() async {
-//     if (!_isListening) return;
-//     await _stt.stop();
-//     setState(() => _isListening = false);
+  Future<void> _processQuestion() async {
+    if (!_isListening) return;
+    await _stt.stop();
+    setState(() => _isListening = false);
 
-//     final question = _spokenWords.trim();
-//     print("Question heard: $question");
+    final question = _spokenWords.trim();
+    print("❓ Question: $question");
 
-//     if (question.isEmpty) {
-//       setState(() => _lastDescription = "Didn't hear anything. Try again.");
-//       await _speak("I didn't hear anything. Please try again.");
-//       if (_cameraOn) _startAutoScan();
-//       return;
-//     }
+    if (question.isEmpty) {
+      setState(() => _lastDescription = "Didn't hear anything. Tap Ask and try again.");
+      if (_cameraOn) _startAutoScan();
+      return;
+    }
 
-//     setState(() => _lastDescription = "You asked: $question");
-//     await Process.run('say', ['-r', '160', 'Got it.']);
-//     await Future.delayed(Duration(milliseconds: 800));
+    setState(() => _lastDescription = "You: $question");
+    await _tts.stop();
+    await _tts.speak("Got it.");
+    await Future.delayed(Duration(milliseconds: 800));
 
-//     if (_cameraOn && _cameraController?.value.isInitialized == true) {
-//       await _captureAndAnalyze(force: true, question: question);
-//     } else {
-//       await _answerWithoutCamera(question);
-//     }
+    if (_cameraOn && _cameraController?.value.isInitialized == true) {
+      await _captureAndAnalyze(force: true, question: question);
+    } else {
+      await _answerWithoutCamera(question);
+    }
 
-//     if (_cameraOn) _startAutoScan();
-//   }
-Future<void> _processQuestion() async {
-  if (!_isListening) return;
-  await _stt.stop();
-  setState(() => _isListening = false);
-
-  final question = _spokenWords.trim();
-  print("Question heard: $question");
-
-  if (question.isEmpty) {
-    setState(() => _lastDescription = "Didn't hear anything. Try again.");
-    await _speak("I didn't hear anything.");
     if (_cameraOn) _startAutoScan();
-    return;
   }
-
-  setState(() => _lastDescription = "You asked: $question");
-  await _speak("Got it.");
-  await Future.delayed(Duration(milliseconds: 1000));
-
-  if (_cameraOn && _cameraController?.value.isInitialized == true) {
-    await _captureAndAnalyze(force: true, question: question);
-  } else {
-    await _answerWithoutCamera(question);
-  }
-
-  if (_cameraOn) _startAutoScan();
-}
 
   Future<void> _answerWithoutCamera(String question) async {
     try {
@@ -204,283 +174,136 @@ Future<void> _processQuestion() async {
         Uri.parse('$BASE_URL/question'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'question': question}),
-      ).timeout(Duration(seconds: 15));
+      ).timeout(Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final answer = data['answer'] ?? '';
         if (answer.isNotEmpty) {
           setState(() => _lastDescription = answer);
-          await _speak(answer);
+          await _tts.stop();
+          await _tts.speak(answer);
         }
       }
     } catch (e) {
-      await _speak("Sorry, I couldn't answer that.");
+      print("Answer error: $e");
+      setState(() => _lastDescription = "Couldn't answer. Try again.");
     }
   }
 
-  // ── Camera ────────────────────────────────────────────────
-    Future<void> _toggleCamera() async {
-  if (_cameraOn) {
-    // ── Turn OFF ──────────────────────────────────────
-    _stopAutoScan();
-    await _cameraController?.dispose();
-    _cameraController = null;
-    setState(() {
-      _cameraOn = false;
-      _currentMode = "";
+  // ── Camera ────────────────────────────────────────────
+  Future<void> _initCamera() async {
+    try {
+      await _cameraController?.dispose();
+      _cameraController = null;
+      if (mounted) setState(() {});
+
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
+
+      _cameraController = CameraController(
+        cameras.first,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      await _cameraController!.initialize();
+      await Future.delayed(Duration(milliseconds: 500));
+      if (mounted) setState(() {});
+      print("✅ Camera initialized");
+    } catch (e) {
+      print("❌ Camera error: $e");
+    }
+  }
+
+  Future<void> _toggleCamera() async {
+    if (_cameraOn) {
+      _stopAutoScan();
+      await _cameraController?.dispose();
+      _cameraController = null;
+      setState(() { _cameraOn = false; _currentMode = ""; });
+      await _speak("Camera off.");
+    } else {
+      setState(() => _cameraOn = true);
+      await _initCamera();
+      _startAutoScan();
+      await _speak("Camera on.");
+    }
+  }
+
+  // ── Auto scan ─────────────────────────────────────────
+  void _startAutoScan() {
+    _autoTimer?.cancel();
+    print("🔄 Auto scan started");
+    _autoTimer = Timer.periodic(Duration(seconds: 3), (_) async {
+      if (!_cameraOn) return;
+      if (_isAnalyzing) return;
+      if (_isListening) return;
+      if (_cameraController?.value.isInitialized != true) return;
+      print("⏱️ Auto scan firing...");
+      await _captureAndAnalyze(force: false);
     });
-    await _speak("Camera off.");
-  } else {
-    // ── Turn ON ───────────────────────────────────────
-    setState(() => _cameraOn = true);
-    await _initCamera();  // fresh init
-    _startAutoScan();
-    await _speak("Camera on.");
   }
-}
-
-Future<void> _initCamera() async {
-  try {
-    await _cameraController?.dispose();
-    _cameraController = null;
-    if (mounted) setState(() {});
-
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) {
-      print("❌ No cameras found");
-      return;
-    }
-
-    _cameraController = CameraController(
-      cameras.first,
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-
-    await _cameraController!.initialize();
-    
-    // ✅ Critical for Chrome — wait for preview to render
-    await Future.delayed(Duration(milliseconds: 500));
-    
-    if (mounted) setState(() {});
-    print("✅ Camera initialized: ${_cameraController!.value.isInitialized}");
-    
-  } catch (e) {
-    print("❌ Camera error: $e");
-  }
-}
-//   Future<void> _initCamera() async {
-//     try {
-//       final cameras = await availableCameras();
-//       if (cameras.isEmpty) return;
-//       _cameraController = CameraController(
-//         cameras.first,
-//         ResolutionPreset.medium,
-//         enableAudio: false,
-//       );
-//       await _cameraController!.initialize();
-//       if (mounted) setState(() {});
-//     } catch (e) {
-//       print("Camera error: $e");
-//     }
-//   }
-
-//   Future<void> _toggleCamera() async {
-//     if (_cameraOn) {
-//       _stopAutoScan();
-//       setState(() { _cameraOn = false; _currentMode = ""; });
-//       await _speak("Camera off.");
-//     } else {
-//       setState(() => _cameraOn = true);
-//       if (_cameraController?.value.isInitialized != true) {
-//         await _initCamera();
-//       }
-//       _startAutoScan();
-//       await _speak("Camera on.");
-//     }
-//   }
-
-//   void _startAutoScan() {
-//     _autoTimer?.cancel();
-//     _autoTimer = Timer.periodic(Duration(seconds: 4), (_) {
-//       if (_cameraOn && !_isAnalyzing && !_isListening &&
-//           _cameraController?.value.isInitialized == true) {
-//         _captureAndAnalyze(force: false);
-//       }
-//     });
-//   }
-void _startAutoScan() {
-  _autoTimer?.cancel();
-  print("🔄 Auto scan started — every 3 seconds");
-  _autoTimer = Timer.periodic(Duration(seconds: 3), (_) async {
-    if (!_cameraOn) return;
-    if (_isAnalyzing) return;
-    if (_isListening) return;
-    if (_cameraController?.value.isInitialized != true) return;
-    print("⏱️ Auto scan firing...");
-    await _captureAndAnalyze(force: false);
-  });
-}
 
   void _stopAutoScan() => _autoTimer?.cancel();
 
-  // ── Core Agent Call ───────────────────────────────────────
-    Future<void> _captureAndAnalyze({
-  bool force = false,
-  String? question,
-}) async {
-  // ── Guard checks ──────────────────────────────────
-  if (_isAnalyzing) return;
-  if (!_cameraOn) return;
-  if (_cameraController == null) return;
-  if (!_cameraController!.value.isInitialized) {
-    print("⚠️ Camera not initialized");
-    return;
+  // ── Core Agent Call ───────────────────────────────────
+  Future<void> _captureAndAnalyze({
+    bool force = false,
+    String? question,
+  }) async {
+    if (_isAnalyzing) return;
+    if (!_cameraOn) return;
+    if (_cameraController == null) return;
+    if (!_cameraController!.value.isInitialized) return;
+
+    setState(() => _isAnalyzing = true);
+
+    try {
+      final image = await _cameraController!.takePicture();
+      final bytes = await image.readAsBytes();
+      final base64Image = base64Encode(bytes);
+
+      final body = {
+        'image': base64Image,
+        'force': force,
+        if (question != null) 'question': question,
+      };
+
+      final response = await http.post(
+        Uri.parse('$BASE_URL/analyze'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      ).timeout(Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final description = data['description'] ?? '';
+        final shouldSpeak = data['should_speak'] ?? false;
+        final modeUsed = data['mode_used'] ?? '';
+
+        print("🗣️ shouldSpeak:$shouldSpeak desc:$description");
+
+        if ((shouldSpeak || force) && description.isNotEmpty) {
+          await _tts.stop();
+          await Future.delayed(Duration(milliseconds: 100));
+          setState(() {
+            _lastDescription = description;
+            _currentMode = modeUsed;
+          });
+          await _speak(description);
+        }
+      }
+    } on TimeoutException {
+      if (force) setState(() => _lastDescription = "Timeout. Try again.");
+    } catch (e) {
+      print("❌ Error: $e");
+      if (force) setState(() => _lastDescription = "Error: $e");
+    } finally {
+      setState(() => _isAnalyzing = false);
+    }
   }
 
-  setState(() => _isAnalyzing = true);
-
-  try {
-    final image = await _cameraController!.takePicture();
-    final bytes = await image.readAsBytes();
-    final base64Image = base64Encode(bytes);
-
-    final body = {
-      'image': base64Image,
-      'force': force,
-      if (question != null) 'question': question,
-    };
-
-    final response = await http.post(
-      Uri.parse('$BASE_URL/analyze'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    ).timeout(Duration(seconds: 60));
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      final description = data['description'] ?? '';
-      final shouldSpeak = data['should_speak'] ?? false;
-      final modeUsed = data['mode_used'] ?? '';
-      final sceneChanged = data['scene_changed'] ?? false;
-
-      print("🗣️ shouldSpeak:$shouldSpeak scene_changed:$sceneChanged desc:$description");
-
-    //   if ((shouldSpeak || force) && description.isNotEmpty) {
-    //     // ✅ FEATURE 6: kill current voice immediately
-    //     await Process.run('killall', ['say']);
-    //     await Future.delayed(Duration(milliseconds: 100));
-
-    //     setState(() {
-    //       _lastDescription = description;
-    //       _currentMode = modeUsed;
-    //     });
-    //     await _speak(description);
-    //   }
-    if ((shouldSpeak || force) && description.isNotEmpty) {
-  // ✅ Stop current speech before new one
-  await _tts.stop();
-  await Future.delayed(Duration(milliseconds: 100));
-
-  setState(() {
-    _lastDescription = description;
-    _currentMode = modeUsed;
-  });
-  await _speak(description);
-}
-    }
-  } on TimeoutException {
-    if (force) {
-      setState(() => _lastDescription = "Timeout. Try again.");
-    }
-  } catch (e) {
-    print("❌ Error: $e");
-    if (force) setState(() => _lastDescription = "Error: $e");
-  } finally {
-    setState(() => _isAnalyzing = false);
-  }
-}
-//   Future<void> _captureAndAnalyze({
-//     bool force = false,
-//     String? question,
-//   }) async {
-//     if (_isAnalyzing || _cameraController == null || !_cameraOn) return;
-//     setState(() => _isAnalyzing = true);
-//     print("📸 Capturing...");
-
-//     try {
-//       final image = await _cameraController!.takePicture();
-//       final bytes = await image.readAsBytes();
-//       final base64Image = base64Encode(bytes);
-//       print("📸 Size: ${bytes.length} bytes");
-
-//       final body = {
-//         'image': base64Image,
-//         'force': force,
-//         if (question != null) 'question': question,
-//       };
-
-//       print("📡 Sending...");
-//       final response = await http.post(
-//         Uri.parse('$BASE_URL/analyze'),
-//         headers: {'Content-Type': 'application/json'},
-//         body: jsonEncode(body),
-//       ).timeout(Duration(seconds: 30));
-
-//       print("📡 Status: ${response.statusCode}");
-
-//       if (response.statusCode == 200) {
-//         final data = jsonDecode(response.body);
-//         final description = data['description'] ?? '';
-//         final shouldSpeak = data['should_speak'] ?? false;
-//         final modeUsed = data['mode_used'] ?? '';
-
-//         print("🗣️ shouldSpeak: $shouldSpeak | desc: $description");
-
-//         // if ((shouldSpeak || force) && description.isNotEmpty) {
-//         //   setState(() {
-//         //     _lastDescription = description;
-//         //     _currentMode = modeUsed;
-//         //   });
-//         //   await Future.delayed(Duration(milliseconds: 200));
-//         //   await _speak(description);
-//         // }
-//         if ((shouldSpeak || force) && description.isNotEmpty) {
-//   // FEATURE 6: interrupt current speech immediately
-//   await Process.run('killall', ['say']);
-//   await Future.delayed(Duration(milliseconds: 100));
-  
-//   setState(() {
-//     _lastDescription = description;
-//     _currentMode = modeUsed;
-//   });
-//   await _speak(description);
-// }
-//        else {
-//         print("❌ Backend error: ${response.statusCode}");
-//         if (force) {
-//           setState(() => _lastDescription = "Backend error. Try again.");
-//         }
-//       }
-
-//     } on TimeoutException {
-//       print("❌ TIMEOUT");
-//       if (force) {
-//         setState(() => _lastDescription = "Timeout. Is backend running?");
-//         await _speak("Taking too long. Please try again.");
-//       }
-//     } catch (e) {
-//       print("❌ Error: $e");
-//       if (force) {
-//         setState(() => _lastDescription = "Error: $e");
-//       }
-//     } finally {
-//       setState(() => _isAnalyzing = false);
-//     }
-//   }
-
-  // ── UI ────────────────────────────────────────────────────
+  // ── UI ────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -488,35 +311,51 @@ void _startAutoScan() {
       body: SafeArea(
         child: Column(children: [
 
-          // Header
+          // ── Header: Logo + CAM toggle ──────────────────
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+
+                // Logo
                 Row(children: [
                   Icon(Icons.visibility, color: Colors.green, size: 28),
                   SizedBox(width: 8),
                   Text("VisionBuddy",
-                    style: TextStyle(color: Colors.white,
-                      fontSize: 22, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    )),
                 ]),
+
+                // ✅ Camera toggle — back in header
                 GestureDetector(
                   onTap: _toggleCamera,
                   child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: _cameraOn ? Colors.green : Colors.red,
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(children: [
                       Icon(
-                        _cameraOn ? Icons.videocam : Icons.videocam_off,
-                        color: Colors.white, size: 18),
+                        _cameraOn
+                          ? Icons.videocam
+                          : Icons.videocam_off,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                       SizedBox(width: 6),
-                      Text(_cameraOn ? "CAM ON" : "CAM OFF",
-                        style: TextStyle(color: Colors.white,
-                          fontWeight: FontWeight.bold, fontSize: 13)),
+                      Text(
+                        _cameraOn ? "CAM ON" : "CAM OFF",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        )),
                     ]),
                   ),
                 ),
@@ -524,67 +363,26 @@ void _startAutoScan() {
             ),
           ),
 
-          // Camera preview
+          // ── Camera Preview ─────────────────────────────
           Expanded(
             flex: 5,
             child: Container(
               margin: EdgeInsets.symmetric(horizontal: 8),
-              child: _cameraOn && _cameraController?.value.isInitialized == true
+              child: _cameraOn &&
+                  _cameraController != null &&
+                  _cameraController!.value.isInitialized
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: Stack(children: [
-                      _cameraOn && _cameraController != null && 
-_cameraController!.value.isInitialized
-  ? ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Stack(children: [
-        // ✅ Use AspectRatio wrapper for Chrome
-        AspectRatio(
-          aspectRatio: _cameraController!.value.aspectRatio,
-          child: CameraPreview(
-            _cameraController!,
-            key: ValueKey(_cameraController.hashCode),
-          ),
-        ),
-        // Live badge
-        Positioned(top: 12, left: 12,
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(
-                  color: _isAnalyzing ? Colors.orange : Colors.green,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              SizedBox(width: 6),
-              Text(
-                _isAnalyzing ? "Analyzing..." : "Live",
-                style: TextStyle(color: Colors.white, fontSize: 12)),
-            ]),
-          ),
-        ),
-        // Mode badge
-        if (_currentMode.isNotEmpty)
-          Positioned(top: 12, right: 12,
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: _modeColor(_currentMode),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(_modeEmoji(_currentMode),
-                style: TextStyle(color: Colors.white,
-                  fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-          ),
-      ]),
-    ):
+
+                      // Camera feed
+                      AspectRatio(
+                        aspectRatio: _cameraController!.value.aspectRatio,
+                        child: CameraPreview(
+                          _cameraController!,
+                          key: ValueKey(_cameraController.hashCode),
+                        ),
+                      ),
 
                       // Live / Analyzing badge
                       Positioned(top: 12, left: 12,
@@ -600,15 +398,19 @@ _cameraController!.value.isInitialized
                               width: 8, height: 8,
                               decoration: BoxDecoration(
                                 color: _isAnalyzing
-                                  ? Colors.orange : Colors.green,
+                                  ? Colors.orange
+                                  : Colors.green,
                                 shape: BoxShape.circle,
                               ),
                             ),
                             SizedBox(width: 6),
                             Text(
-                              _isAnalyzing ? "Analyzing..." : "Live",
+                              _isAnalyzing
+                                ? "Analyzing..." : "Live",
                               style: TextStyle(
-                                color: Colors.white, fontSize: 12)),
+                                color: Colors.white,
+                                fontSize: 12,
+                              )),
                           ]),
                         ),
                       ),
@@ -623,13 +425,19 @@ _cameraController!.value.isInitialized
                               color: _modeColor(_currentMode),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Text(_modeEmoji(_currentMode),
-                              style: TextStyle(color: Colors.white,
-                                fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: Text(
+                              _modeEmoji(_currentMode),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              )),
                           ),
                         ),
                     ]),
                   )
+
+                // Camera OFF screen
                 : Container(
                     decoration: BoxDecoration(
                       color: Colors.grey[900],
@@ -642,7 +450,8 @@ _cameraController!.value.isInitialized
                           color: Colors.grey, size: 64),
                         SizedBox(height: 12),
                         Text("Camera Off",
-                          style: TextStyle(color: Colors.grey, fontSize: 20)),
+                          style: TextStyle(
+                            color: Colors.grey, fontSize: 20)),
                         SizedBox(height: 8),
                         Text("Mic still works for questions",
                           style: TextStyle(
@@ -655,7 +464,7 @@ _cameraController!.value.isInitialized
 
           SizedBox(height: 10),
 
-          // Description box — BIG visible text
+          // ── Description Box ────────────────────────────
           Container(
             margin: EdgeInsets.symmetric(horizontal: 16),
             padding: EdgeInsets.all(16),
@@ -671,11 +480,11 @@ _cameraController!.value.isInitialized
               Expanded(
                 child: Text(
                   _isListening
-                    ? "🎤 ${_spokenWords.isEmpty
-                        ? 'Listening...' : _spokenWords}"
+                    ? "🎤 ${_spokenWords.isEmpty ? 'Listening...' : _spokenWords}"
                     : _lastDescription,
                   style: TextStyle(
-                    color: _isListening ? Colors.blue[300] : Colors.white,
+                    color: _isListening
+                      ? Colors.blue[300] : Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     height: 1.5,
@@ -686,7 +495,8 @@ _cameraController!.value.isInitialized
               ),
               SizedBox(width: 8),
               IconButton(
-                icon: Icon(Icons.volume_up, color: Colors.green, size: 24),
+                icon: Icon(Icons.volume_up,
+                  color: Colors.green, size: 24),
                 onPressed: () => _speak(_lastDescription),
               ),
             ]),
@@ -694,14 +504,14 @@ _cameraController!.value.isInitialized
 
           SizedBox(height: 12),
 
-          // Bottom buttons
+          // ── Bottom Buttons ─────────────────────────────
           Padding(
             padding: EdgeInsets.only(bottom: 24),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
 
-                // Replay last description
+                // Replay
                 _circleBtn(
                   icon: Icons.replay,
                   color: Colors.grey[800]!,
@@ -710,18 +520,23 @@ _cameraController!.value.isInitialized
                   label: "Replay",
                 ),
 
-                // Mic button — tap to ask
+                // ✅ Mic button — center bottom
                 GestureDetector(
-                  onTap: _isListening ? _processQuestion : _startListening,
+                  onTap: _isListening
+                    ? _processQuestion
+                    : _startListening,
                   child: Container(
                     width: 85, height: 85,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: _isListening ? Colors.red : Colors.blue,
+                      color: _isListening
+                        ? Colors.red : Colors.blue,
                       boxShadow: [BoxShadow(
-                        color: (_isListening ? Colors.red : Colors.blue)
+                        color: (_isListening
+                          ? Colors.red : Colors.blue)
                           .withOpacity(0.5),
-                        blurRadius: 20, spreadRadius: 5,
+                        blurRadius: 20,
+                        spreadRadius: 5,
                       )],
                     ),
                     child: Column(
@@ -732,9 +547,10 @@ _cameraController!.value.isInitialized
                           color: Colors.white, size: 34),
                         SizedBox(height: 2),
                         Text(
-                          _isListening ? "Send" : "Ask",
+                          _isListening ? "Stop" : "Ask",
                           style: TextStyle(
-                            color: Colors.white, fontSize: 11)),
+                            color: Colors.white,
+                            fontSize: 11)),
                       ],
                     ),
                   ),
@@ -758,7 +574,7 @@ _cameraController!.value.isInitialized
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────
   Color _modeColor(String mode) {
     switch (mode) {
       case 'medicine':   return Colors.red.withOpacity(0.85);
@@ -792,12 +608,18 @@ _cameraController!.value.isInitialized
         Container(
           width: size, height: size,
           decoration: BoxDecoration(
-            color: color, shape: BoxShape.circle),
-          child: Icon(icon, color: Colors.white, size: size * 0.42),
+            color: color,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon,
+            color: Colors.white,
+            size: size * 0.42),
         ),
         if (label.isNotEmpty) ...[
           SizedBox(height: 4),
-          Text(label, style: TextStyle(color: Colors.grey, fontSize: 11)),
+          Text(label,
+            style: TextStyle(
+              color: Colors.grey, fontSize: 11)),
         ]
       ]),
     );
